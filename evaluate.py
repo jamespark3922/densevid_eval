@@ -6,6 +6,7 @@
 # --------------------------------------------------------
 
 import argparse
+import string
 import json
 import sys
 sys.path.insert(0, './coco-caption') # Hack to allow the import of pycocoeval
@@ -15,6 +16,7 @@ from pycocoevalcap.bleu.bleu import Bleu
 from pycocoevalcap.meteor.meteor import Meteor
 from pycocoevalcap.rouge.rouge import Rouge
 from pycocoevalcap.cider.cider import Cider
+from pycocoevalcap.spice.spice import Spice
 from sets import Set
 import numpy as np
 
@@ -50,7 +52,8 @@ class ANETcaptions(object):
                 (Bleu(4), ["Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4"]),
                 (Meteor(),"METEOR"),
                 (Rouge(), "ROUGE_L"),
-                (Cider(), "CIDEr")
+                (Cider(), "CIDEr"),
+                (Spice(), "SPICE")
             ]
         else:
             self.scorers = [(Meteor(), "METEOR")]
@@ -63,9 +66,13 @@ class ANETcaptions(object):
             raise IOError('Please input a valid ground truth file.')
         # Ensure that every video is limited to the correct maximum number of proposals.
         results = {}
+        len_captions = 0
         for vid_id in submission['results']:
             results[vid_id] = submission['results'][vid_id][:self.max_proposals]
-        return results
+            len_captions+= len(submission['results'][vid_id][:self.max_proposals])
+        print('len of results:', len(results))
+        print('len of captions:', len_captions)
+	return results
 
     def import_ground_truths(self, filenames):
         gts = []
@@ -140,7 +147,7 @@ class ANETcaptions(object):
                                 ref_set_covered.add(ref_i)
                                 pred_set_covered.add(pred_i)
 
-                    new_precision = float(len(pred_set_covered)) / (pred_i + 1) 
+                    new_precision = float(len(pred_set_covered)) / (pred_i + 1)
                     best_precision = max(best_precision, new_precision)
                 new_recall = float(len(ref_set_covered)) / len(refs['timestamps'])
                 best_recall = max(best_recall, new_recall)
@@ -149,22 +156,21 @@ class ANETcaptions(object):
         return sum(precision) / len(precision), sum(recall) / len(recall)
 
     def evaluate_tiou(self, tiou):
-        # This method averages the tIoU precision from METEOR, Bleu, etc. across videos 
+        # This method averages the tIoU precision from METEOR, Bleu, etc. across videos
         res = {}
         gts = {}
         gt_vid_ids = self.get_gt_vid_ids()
-        
+
         unique_index = 0
 
         # video id to unique caption ids mapping
         vid2capid = {}
-        
+
         cur_res = {}
         cur_gts = {}
-        
-        
+
         for vid_id in gt_vid_ids:
-            
+
             vid2capid[vid_id] = []
 
             # If the video does not have a prediction, then Vwe give it no matches
@@ -176,59 +182,67 @@ class ANETcaptions(object):
             # valid tIoU overlaps
             else:
                 # For each prediction, we look at the tIoU with ground truth
-                for pred in self.prediction[vid_id]:
+                for i,pred in enumerate(self.prediction[vid_id]):
                     has_added = False
                     for gt in self.ground_truths:
                         if vid_id not in gt:
+                            print('skipped')
                             continue
                         gt_captions = gt[vid_id]
                         for caption_idx, caption_timestamp in enumerate(gt_captions['timestamps']):
-                            if self.iou(pred['timestamp'], caption_timestamp) >= tiou:
-
+                            if True or self.iou(pred['timestamp'], caption_timestamp) >= tiou:
+                                gt_caption = gt_captions['sentences'][i] # for now we use gt proposal
                                 cur_res[unique_index] = [{'caption': remove_nonascii(pred['sentence'])}]
-                                cur_gts[unique_index] = [{'caption': remove_nonascii(gt_captions['sentences'][caption_idx])}]
+                                cur_gts[unique_index] = [{'caption': remove_nonascii(gt_caption)}] # for now we use gt proposal
+                                #cur_gts[unique_index] = [{'caption': remove_nonascii(gt_captions['sentences'][caption_idx])}]
                                 vid2capid[vid_id].append(unique_index)
                                 unique_index += 1
                                 has_added = True
+                                break # for now we use gt proposal
 
-                    # If the predicted caption does not overlap with any ground truth,
-                    # we should compare it with garbage
-                    if not has_added:
-                        cur_res[unique_index] = [{'caption': remove_nonascii(pred['sentence'])}]
-                        cur_gts[unique_index] = [{'caption': 'abc123!@#'}]
-                        vid2capid[vid_id].append(unique_index)
-                        unique_index += 1
+                            # If the predicted caption does not overlap with any ground truth,
+                            # we should compare it with garbage
+                            if not has_added:
+                                cur_res[unique_index] = [{'caption': remove_nonascii(pred['sentence'])}]
+                                cur_gts[unique_index] = [{'caption': 'abc123!@#'}]
+                                vid2capid[vid_id].append(unique_index)
+                                unique_index += 1
 
         # Each scorer will compute across all videos and take average score
         output = {}
+
+        # call tokenizer here for all predictions and gts
+        tokenize_res = self.tokenizer.tokenize(cur_res)
+        tokenize_gts = self.tokenizer.tokenize(cur_gts)
+
+        # reshape back
+        for vid in vid2capid.keys():
+            res[vid] = {index:tokenize_res[index] for index in vid2capid[vid]}
+            gts[vid] = {index:tokenize_gts[index] for index in vid2capid[vid]}
+
         for scorer, method in self.scorers:
             if self.verbose:
                 print 'computing %s score...'%(scorer.method())
-            
+
             # For each video, take all the valid pairs (based from tIoU) and compute the score
             all_scores = {}
-            
-            # call tokenizer here for all predictions and gts
-            tokenize_res = self.tokenizer.tokenize(cur_res)
-            tokenize_gts = self.tokenizer.tokenize(cur_gts)
-            
-            # reshape back
-            for vid in vid2capid.keys():
-                res[vid] = {index:tokenize_res[index] for index in vid2capid[vid]}
-                gts[vid] = {index:tokenize_gts[index] for index in vid2capid[vid]}
-            
-            for vid_id in gt_vid_ids:
 
-                if len(res[vid_id]) == 0 or len(gts[vid_id]) == 0:
-                    if type(method) == list:
-                        score = [0] * len(method)
+            if method == "SPICE": # don't want to compute spice for 10000 times
+                print("getting spice score...")
+                score, scores = scorer.compute_score(tokenize_gts, tokenize_res)
+                all_scores[0] = score
+            else:
+                for vid_id in gt_vid_ids:
+                    if len(res[vid_id]) == 0 or len(gts[vid_id]) == 0:
+                        if type(method) == list:
+                            score = [0] * len(method)
+                        else:
+                            score = 0
                     else:
-                        score = 0
-                else:
-                    score, scores = scorer.compute_score(gts[vid_id], res[vid_id])
-                all_scores[vid_id] = score
+                        score, scores = scorer.compute_score(gts[vid_id], res[vid_id])
+                    all_scores[vid_id] = score
 
-            print all_scores.values()
+            #print all_scores.values()
             if type(method) == list:
                 scores = np.mean(all_scores.values(), axis=0)
                 for m in xrange(len(method)):
@@ -264,17 +278,22 @@ def main(args):
     print '-' * 80
     print "Average across all tIoUs"
     print '-' * 80
+    output = {}
     for metric in evaluator.scores:
         score = evaluator.scores[metric]
         print '| %s: %2.4f'%(metric, 100 * sum(score) / float(len(score)))
-
+	output[metric] = 100 * sum(score) / float(len(score))
+    json.dump(output,open(args.output,'w'))
+    print(output)
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Evaluate the results stored in a submissions file.')
     parser.add_argument('-s', '--submission', type=str,  default='sample_submission.json',
                         help='sample submission file for ActivityNet Captions Challenge.')
-    parser.add_argument('-r', '--references', type=str, nargs='+', default=['data/val_1.json', 'data/val_2.json'],
+    parser.add_argument('-r', '--references', type=str, nargs='+', default=['data/val_1.json'],
                         help='reference files with ground truth captions to compare results against. delimited (,) str')
-    parser.add_argument('--tious', type=float,  nargs='+', default=[0.3, 0.5, 0.7, 0.9],
+    parser.add_argument('-o', '--output', type=str,  default='result.json',
+                        help='output file with final language metrics.')
+    parser.add_argument('--tious', type=float,  nargs='+', default=[0.3],
                         help='Choose the tIoUs to average over.')
     parser.add_argument('-ppv', '--max-proposals-per-video', type=int, default=1000,
                         help='maximum propoasls per video.')
