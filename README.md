@@ -1,28 +1,15 @@
 # Dense Captioning Events in Video - Evaluation Code
 
+This is a forked repository from [densevid_eval](https://github.com/ranjaykrishna/densevid_eval).
+Instead of using sentence metrics, we evaluate captions at the paragraph level, as described in [Move Forward and Tell (ECCV18)](https://arxiv.org/abs/1807.10018)
+
 ## Usage
-First, clone this repository and make sure that all the submodules are also cloned properly.
 ```
-git clone --recursive https://github.com/ranjaykrishna/densevid_eval.git
-```
-
-Next, download the dataset using
-```
-./download.sh
-```
-
-Finally, test that the evaluator runs by testing it on our ```sample_submission.json``` file by calling:
-```
-python evaluate.py
-```
-
-You are now all set to produce your own dense captioning results for videos and use this code to evaluate your mode:
-```
-python evaluate.py -s YOUR_SUBMISSION_FILE.JSON
+python para-evaluate.py -s YOUR_SUBMISSION_FILE.JSON --verbose
 ```
 
 ## Paper
-Visit [our project page](http://cs.stanford.edu/people/ranjaykrishna/densevid) and read our paper for details.
+Visit [the project page](http://cs.stanford.edu/people/ranjaykrishna/densevid) for details on activitynet captions.
 
 ## Citation
 ```
@@ -38,9 +25,3 @@ Visit [our project page](http://cs.stanford.edu/people/ranjaykrishna/densevid) a
 
 MIT License copyright Ranjay Krishna
 
-## Contributions
-Feel free to send pull requests to help write example code, contribute patches, document methods, etc. You can reach me through:
-
-twitter: @RanjayKrishna
-
-email: ranjaykrishna [at] stanford [dot] edu

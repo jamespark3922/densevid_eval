@@ -72,7 +72,7 @@ class ANETcaptions(object):
             len_captions+= len(submission['results'][vid_id][:self.max_proposals])
         print('len of results:', len(results))
         print('len of captions:', len_captions)
-	return results
+        return results
 
     def import_ground_truths(self, filenames):
         gts = []
@@ -232,7 +232,7 @@ class ANETcaptions(object):
                 score, scores = scorer.compute_score(tokenize_gts, tokenize_res)
                 all_scores[0] = score
             else:
-                for vid_id in gt_vid_ids:
+                for i,vid_id in enumerate(gt_vid_ids):
                     if len(res[vid_id]) == 0 or len(gts[vid_id]) == 0:
                         if type(method) == list:
                             score = [0] * len(method)
@@ -282,7 +282,7 @@ def main(args):
     for metric in evaluator.scores:
         score = evaluator.scores[metric]
         print '| %s: %2.4f'%(metric, 100 * sum(score) / float(len(score)))
-	output[metric] = 100 * sum(score) / float(len(score))
+    output[metric] = 100 * sum(score) / float(len(score))
     json.dump(output,open(args.output,'w'))
     print(output)
 if __name__=='__main__':
